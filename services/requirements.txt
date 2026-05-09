@@ -1,0 +1,12 @@
+# Signal Snitch — runtime dependencies for all Python services under this directory.
+#
+# Install into a virtualenv:
+#   python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+#   pip install -r requirements.txt
+#
+# Editable install (packages importable as `producer` / `aggregator`):
+#   pip install -e .
+
+confluent-kafka>=2.3.0,<3
+fastapi>=0.115.0,<1
+uvicorn[standard]>=0.30.0,<1
