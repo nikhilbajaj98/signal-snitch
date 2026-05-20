@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"time"
 
@@ -17,16 +18,27 @@ import (
 var jsonRegex = regexp.MustCompile(`\{[^{}]*\}`)
 
 type Telemetry struct {
-	SourceIP string `json:"source_ip"`
-	Payload  string `json:"payload"`
+	PacketType string            `json:"packet_type,omitempty"`
+	SourceIP   string            `json:"source_ip"`
+	Payload    string            `json:"payload"`
+	CapturedAt string            `json:"captured_at,omitempty"`
+	Meta       map[string]string `json:"meta,omitempty"`
 }
 
-func reportToBrain(sourceIp string, payload string) {
-	url := "http://localhost:8000/telemetry"
+func reportToBrain(sourceIp string, payload string, packetType string) {
+	url := os.Getenv("AGGREGATOR_URL")
+	if url == "" {
+		url = "http://localhost:8000/telemetry"
+	}
 
 	data := Telemetry{
-		SourceIP: sourceIp,
-		Payload:  payload,
+		PacketType: packetType,
+		SourceIP:   sourceIp,
+		Payload:    payload,
+		CapturedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Meta: map[string]string{
+			"sniffer": "go-agent",
+		},
 	}
 
 	jsonData, err := json.Marshal(data)
@@ -56,15 +68,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	targetInterface := os.Getenv("SNIFF_INTERFACE")
+	if targetInterface == "" {
+		targetInterface = "lo0"
+	}
 	var wifi *pcap.Interface
 	for i := range devices {
-		if devices[i].Name == "lo0" {
+		if devices[i].Name == targetInterface {
 			wifi = &devices[i]
 			break
 		}
 	}
 	if wifi == nil {
-		log.Fatal("No WiFi device found")
+		if len(devices) == 0 {
+			log.Fatal("No network devices found for packet sniffing")
+		}
+		log.Printf("Interface %s not found; falling back to %s", targetInterface, devices[0].Name)
+		wifi = &devices[0]
 	}
 	fmt.Printf("Using device: %s, Device description: %s\n", wifi.Name, wifi.Description)
 
@@ -107,6 +127,6 @@ func processPacket(packet gopacket.Packet) {
 	}
 
 	if sourceIp != "" && payload != "" {
-		reportToBrain(sourceIp, payload)
+		reportToBrain(sourceIp, payload, "kafka_tcp")
 	}
 }
