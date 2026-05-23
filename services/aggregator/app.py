@@ -96,6 +96,14 @@ def create_app(ch_client_override: Any | None = None) -> FastAPI:
         ensure_telemetry_table(app.state.ch_client)
         logger.info("Connected to ClickHouse and telemetry schema is ready")
         yield
+        try:
+            yield
+        finally:
+            close_fn = getattr(app.state.ch_client, "close", None)
+            if callable(close_fn):
+                close_fn()
+                logger.info("Closed ClickHouse connection")
+    
 
     app = FastAPI(lifespan=lifespan)
     app.state.ch_client = ch_client_override

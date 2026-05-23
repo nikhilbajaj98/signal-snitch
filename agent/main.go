@@ -72,23 +72,23 @@ func main() {
 	if targetInterface == "" {
 		targetInterface = "lo0"
 	}
-	var wifi *pcap.Interface
+	var sniffInterface *pcap.Interface
 	for i := range devices {
 		if devices[i].Name == targetInterface {
-			wifi = &devices[i]
+			sniffInterface = &devices[i]
 			break
 		}
 	}
-	if wifi == nil {
+	if sniffInterface == nil {
 		if len(devices) == 0 {
 			log.Fatal("No network devices found for packet sniffing")
 		}
 		log.Printf("Interface %s not found; falling back to %s", targetInterface, devices[0].Name)
-		wifi = &devices[0]
+		sniffInterface = &devices[0]
 	}
-	fmt.Printf("Using device: %s, Device description: %s\n", wifi.Name, wifi.Description)
+	fmt.Printf("Using device: %s, Device description: %s\n", sniffInterface.Name, sniffInterface.Description)
 
-	handle, err := pcap.OpenLive(wifi.Name, 1024, true, 30*time.Second)
+	handle, err := pcap.OpenLive(sniffInterface.Name, 1024, true, 30*time.Second)
 	if err != nil {
 		log.Fatal(err)
 	}
