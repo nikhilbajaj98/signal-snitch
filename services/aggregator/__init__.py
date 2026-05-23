@@ -8,6 +8,12 @@ if sys.version_info < (3, 10):
         "Your `python` is older (often Python 2.7). Run: python3 -m aggregator"
     )
 
-from aggregator.app import app
+def __getattr__(name: str):
+    if name == "app":
+        from aggregator.app import app
+
+        return app
+    raise AttributeError(f"module 'aggregator' has no attribute '{name}'")
+
 
 __all__ = ["app"]
