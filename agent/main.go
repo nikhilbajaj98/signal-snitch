@@ -5,43 +5,36 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
-	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+	"github.com/nikhilbajaj98/signal-snitch/agent/parsers"
 )
 
-var jsonRegex = regexp.MustCompile(`\{[^{}]*\}`)
-
 type Telemetry struct {
-	PacketType string            `json:"packet_type,omitempty"`
-	SourceIP   string            `json:"source_ip"`
-	Payload    string            `json:"payload"`
-	CapturedAt string            `json:"captured_at,omitempty"`
-	Meta       map[string]string `json:"meta,omitempty"`
+	Protocol  string `json:"protocol"`
+	Route     string `json:"route"`
+	Sender    string `json:"sender"`
+	Receiver  string `json:"receiver"`
+	Payload   string `json:"payload"`
+	BytesSize int    `json:"bytes_size"`
 }
 
-func reportToBrain(sourceIp string, payload string, packetType string) {
+var parserFactory = parsers.NewFactory()
+
+func reportToBrain(event Telemetry) {
 	url := os.Getenv("AGGREGATOR_URL")
 	if url == "" {
 		url = "http://localhost:8000/telemetry"
 	}
 
-	data := Telemetry{
-		PacketType: packetType,
-		SourceIP:   sourceIp,
-		Payload:    payload,
-		CapturedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		Meta: map[string]string{
-			"sniffer": "go-agent",
-		},
-	}
-
-	jsonData, err := json.Marshal(data)
+	jsonData, err := json.Marshal(event)
 	if err != nil {
 		log.Println("Error marshalling data:", err)
 		return
@@ -60,6 +53,17 @@ func reportToBrain(sourceIp string, payload string, packetType string) {
 	}
 
 	log.Println("Data sent successfully")
+}
+
+func endpoint(ip net.IP, port uint16) string {
+	return net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
+}
+
+func defaultBPFFilter() string {
+	if filter := os.Getenv("SNIFF_BPF_FILTER"); filter != "" {
+		return filter
+	}
+	return "tcp port 9092 or tcp port 5672"
 }
 
 func main() {
@@ -88,45 +92,70 @@ func main() {
 	}
 	fmt.Printf("Using device: %s, Device description: %s\n", sniffInterface.Name, sniffInterface.Description)
 
-	handle, err := pcap.OpenLive(sniffInterface.Name, 1024, true, 30*time.Second)
+	snaplen := 65535
+	if v := os.Getenv("SNIFF_SNAPLEN"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			snaplen = n
+		}
+	}
+
+	handle, err := pcap.OpenLive(sniffInterface.Name, int32(snaplen), true, 30*time.Second)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer handle.Close()
 
-	handle.SetBPFFilter("tcp port 9092")
+	bpfFilter := defaultBPFFilter()
+	if err := handle.SetBPFFilter(bpfFilter); err != nil {
+		log.Fatalf("Failed to set BPF filter %q: %v", bpfFilter, err)
+	}
+	log.Printf("Sniffing with BPF filter: %s", bpfFilter)
 
 	fmt.Println("Sniffing packets...")
-	packet_source := gopacket.NewPacketSource(handle, handle.LinkType())
-	for packet := range packet_source.Packets() {
+	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	for packet := range packetSource.Packets() {
 		processPacket(packet)
 	}
 }
 
 func processPacket(packet gopacket.Packet) {
-
-	var sourceIp string
-	var payload string
 	tcpLayer := packet.Layer(layers.LayerTypeTCP)
-	if tcpLayer != nil {
-		tcp, _ := tcpLayer.(*layers.TCP)
-		tcpPayload := tcp.Payload
-
-		match := jsonRegex.Find(tcpPayload)
-		if len(match) > 0 && json.Valid(match) {
-			fmt.Printf("🎯 [DATA DETECTED]: %s\n", string(match))
-			payload = string(match)
-		}
-	}
-
 	ipLayer := packet.Layer(layers.LayerTypeIPv4)
-	if ipLayer != nil {
-		ip, _ := ipLayer.(*layers.IPv4)
-		fmt.Printf("🎯 [IP DETECTED]: %s\n", ip.SrcIP.String())
-		sourceIp = ip.SrcIP.String()
+	if tcpLayer == nil || ipLayer == nil {
+		return
 	}
 
-	if sourceIp != "" && payload != "" {
-		reportToBrain(sourceIp, payload, "kafka_tcp")
+	tcp, _ := tcpLayer.(*layers.TCP)
+	ip, _ := ipLayer.(*layers.IPv4)
+	if len(tcp.Payload) == 0 {
+		return
 	}
+
+	in := parsers.ParseInput{
+		SrcIP:      ip.SrcIP,
+		DstIP:      ip.DstIP,
+		SrcPort:    uint16(tcp.SrcPort),
+		DstPort:    uint16(tcp.DstPort),
+		TCPPayload: tcp.Payload,
+	}
+
+	event, ok := parserFactory.Parse(in)
+	if !ok {
+		return
+	}
+
+	sender := endpoint(ip.SrcIP, uint16(tcp.SrcPort))
+	receiver := endpoint(ip.DstIP, uint16(tcp.DstPort))
+
+	fmt.Printf("🎯 [%s] route=%s payload=%s\n", event.Protocol, event.Route, event.Payload)
+	fmt.Printf("🎯 [FLOW DETECTED]: %s -> %s\n", sender, receiver)
+
+	reportToBrain(Telemetry{
+		Protocol:  event.Protocol,
+		Route:     event.Route,
+		Sender:    sender,
+		Receiver:  receiver,
+		Payload:   event.Payload,
+		BytesSize: event.BytesSize,
+	})
 }

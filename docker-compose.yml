@@ -14,6 +14,15 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
   clickhouse:
     image: clickhouse/clickhouse-server
     container_name: clickhouse
@@ -57,7 +66,21 @@ services:
     depends_on:
       - kafka
 
-  go-agent:
+  amqp-producer:
+    image: python:3.12-slim
+    working_dir: /app/services
+    volumes:
+      - ./:/app
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt && python -m amqp_producer"
+    environment:
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      AMQP_EXCHANGE: telemetry.events
+      AMQP_ROUTING_KEY: pulse
+    depends_on:
+      - rabbitmq
+
+  go-agent-kafka:
     image: golang:1.22-bullseye
     working_dir: /app/agent
     network_mode: "service:kafka"
@@ -70,8 +93,32 @@ services:
     environment:
       AGGREGATOR_URL: http://aggregator:8000/telemetry
       SNIFF_INTERFACE: any
+      SNIFF_BPF_FILTER: tcp port 9092
+      KAFKA_DEFAULT_ROUTE: orders
     depends_on:
       - kafka
+      - aggregator
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+  go-agent-amqp:
+    image: golang:1.22-bullseye
+    working_dir: /app/agent
+    network_mode: "service:rabbitmq"
+    volumes:
+      - ./:/app
+    command: >
+      bash -c "apt-get update &&
+               apt-get install -y --no-install-recommends libpcap-dev ca-certificates &&
+               go run ."
+    environment:
+      AGGREGATOR_URL: http://aggregator:8000/telemetry
+      SNIFF_INTERFACE: any
+      SNIFF_BPF_FILTER: tcp port 5672
+      AMQP_DEFAULT_ROUTE: unknown_exchange
+    depends_on:
+      - rabbitmq
       - aggregator
     cap_add:
       - NET_ADMIN
