@@ -123,3 +123,14 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - aggregator

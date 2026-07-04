@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/gopacket"
@@ -146,6 +147,18 @@ func processPacket(packet gopacket.Packet) {
 
 	sender := endpoint(ip.SrcIP, uint16(tcp.SrcPort))
 	receiver := endpoint(ip.DstIP, uint16(tcp.DstPort))
+
+	if event.Protocol == "KAFKA" {
+		dstPortStr := strconv.Itoa(int(tcp.DstPort))
+		if !strings.HasSuffix(receiver, ":"+dstPortStr) {
+			receiver = fmt.Sprintf("%s:%s", ip.DstIP.String(), dstPortStr)
+		}
+		if tcp.DstPort == 9092 || tcp.DstPort == 29092 {
+			receiver = fmt.Sprintf("%s:%d", ip.DstIP.String(), tcp.DstPort)
+		} else if tcp.SrcPort == 9092 || tcp.SrcPort == 29092 {
+			sender = fmt.Sprintf("%s:%d", ip.SrcIP.String(), tcp.SrcPort)
+		}
+	}
 
 	fmt.Printf("🎯 [%s] route=%s payload=%s\n", event.Protocol, event.Route, event.Payload)
 	fmt.Printf("🎯 [FLOW DETECTED]: %s -> %s\n", sender, receiver)

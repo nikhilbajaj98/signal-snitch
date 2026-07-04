@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+:root {
+  --background: #020617; /* bg-slate-950 */
+  --foreground: #f8fafc; /* text-slate-50 */
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Custom CSS Animations for SignalSnitch */
+@keyframes edge-pip {
+  from {
+    stroke-dashoffset: 48;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.edge-pulse {
+  stroke-dasharray: 4, 44;
+  stroke-linecap: round;
+  animation: edge-pip 1.2s linear infinite;
+}
+
+@keyframes pulse-glow-green {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(34, 197, 94, 0.3), inset 0 0 2px rgba(34, 197, 94, 0.1);
+    border-color: rgba(34, 197, 94, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(34, 197, 94, 0.7), inset 0 0 6px rgba(34, 197, 94, 0.3);
+    border-color: rgba(34, 197, 94, 0.9);
+  }
+}
+
+@keyframes pulse-glow-red {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.3), inset 0 0 2px rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.7), inset 0 0 6px rgba(239, 68, 68, 0.3);
+    border-color: rgba(239, 68, 68, 0.9);
+  }
+}
+
+@keyframes pulse-glow-blue {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(59, 130, 246, 0.3), inset 0 0 2px rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.7), inset 0 0 6px rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.9);
+  }
+}
+
+@keyframes pulse-glow-purple {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(168, 85, 247, 0.3), inset 0 0 2px rgba(168, 85, 247, 0.1);
+    border-color: rgba(168, 85, 247, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(168, 85, 247, 0.7), inset 0 0 6px rgba(168, 85, 247, 0.3);
+    border-color: rgba(168, 85, 247, 0.9);
+  }
+}
+
+.node-pulse-green {
+  animation: pulse-glow-green 2s infinite ease-in-out;
+}
+
+.node-pulse-red {
+  animation: pulse-glow-red 2s infinite ease-in-out;
+}
+
+.node-pulse-blue {
+  animation: pulse-glow-blue 2s infinite ease-in-out;
+}
+
+.node-pulse-purple {
+  animation: pulse-glow-purple 2s infinite ease-in-out;
+}
+
+/* Custom styles for React Flow to fit our dark theme */
+.react-flow__handle {
+  width: 8px !important;
+  height: 8px !important;
+  background-color: #3b82f6 !important;
+  border: 1px solid #1e293b !important;
+}
+
+.react-flow__edge-path {
+  transition: stroke-width 0.3s ease;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #020617;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}

@@ -8,6 +8,7 @@ from typing import Any
 
 import clickhouse_connect
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -134,6 +135,13 @@ def create_app(ch_client_override: Any | None = None) -> FastAPI:
             logger.info("Closed ClickHouse connection")
 
     app = FastAPI(lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.ch_client = ch_client_override
 
     @app.post("/telemetry")
@@ -202,6 +210,7 @@ SELECT
     sum(bytes_size) AS total_bytes
 FROM telemetry
 WHERE timestamp >= now64() - toIntervalSecond(%(window)s)
+  AND route NOT IN ('telemetry.events', 'signal-snitch-internal')
 GROUP BY protocol, route, sender, receiver
 """
             query_params["window"] = window_seconds
@@ -215,6 +224,7 @@ SELECT
     count() AS message_count,
     sum(bytes_size) AS total_bytes
 FROM telemetry
+WHERE route NOT IN ('telemetry.events', 'signal-snitch-internal')
 GROUP BY protocol, route, sender, receiver
 """
 
@@ -283,6 +293,8 @@ GROUP BY protocol, route, sender, receiver
             else:
                 if nodes[receiver_id]["type"] == "client":
                     nodes[receiver_id]["type"] = "broker"
+                if receiver and ":" in receiver and ":" not in nodes[receiver_id]["label"]:
+                    nodes[receiver_id]["label"] = receiver
                 if "protocol" not in nodes[receiver_id]:
                     nodes[receiver_id]["protocol"] = protocol
             nodes[receiver_id]["message_count"] += msg_count
