@@ -225,13 +225,13 @@ export default function TopologyMap({ nodes = [], edges = [], onElementClick }) 
 
     const layoutNodes = [];
 
-    // 1. Clients (Column 1 - X: 50)
+    // 1. Clients (Column 1 - X: 80)
     const clientStartY = getStartY(clients.length);
     clients.forEach((node, idx) => {
       layoutNodes.push({
         id: node.id,
         type: "customNode",
-        position: { x: 50, y: clientStartY + (idx * stepY) },
+        position: node.position || { x: 80, y: clientStartY + (idx * stepY) },
         data: { ...node },
       });
     });
@@ -242,18 +242,18 @@ export default function TopologyMap({ nodes = [], edges = [], onElementClick }) 
       layoutNodes.push({
         id: node.id,
         type: "customNode",
-        position: { x: 400, y: routeStartY + (idx * stepY) },
+        position: node.position || { x: 400, y: routeStartY + (idx * stepY) },
         data: { ...node },
       });
     });
 
-    // 3. Brokers (Column 3 - X: 750)
+    // 3. Brokers (Column 3 - X: 720)
     const brokerStartY = getStartY(brokers.length);
     brokers.forEach((node, idx) => {
       layoutNodes.push({
         id: node.id,
         type: "customNode",
-        position: { x: 750, y: brokerStartY + (idx * stepY) },
+        position: node.position || { x: 720, y: brokerStartY + (idx * stepY) },
         data: { ...node },
       });
     });
