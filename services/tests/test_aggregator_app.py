@@ -221,3 +221,24 @@ def test_topology_endpoint_no_window() -> None:
     assert "timestamp >=" not in sql
     assert params == {}
 
+
+def test_analyze_endpoint_offline_fallback() -> None:
+    fake_client = FakeClickHouseClient()
+    fake_client.query_results = [
+        ['{"timestamp": 123, "status": "SUCCESS", "message": "Test"}'],
+        ['{"timestamp": 124, "status": "FAILED", "message": "Error"}'],
+    ]
+
+    app = create_app(ch_client_override=fake_client)
+    client = TestClient(app)
+
+    response = client.post("/telemetry/analyze?topic=route:kafka:orders")
+    assert response.status_code == 200
+    data = response.json()
+    assert "is_anomaly" in data
+    assert "suspected_cause" in data
+    assert "suggested_fix" in data
+    assert data["is_anomaly"] is True
+    assert "High failure rate detected" in data["suspected_cause"]
+
+

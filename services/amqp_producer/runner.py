@@ -12,7 +12,16 @@ _AMQP_URL = os.getenv("AMQP_URL", "amqp://guest:guest@localhost:5672/")
 
 def main() -> None:
     params = pika.URLParameters(_AMQP_URL)
-    connection = pika.BlockingConnection(params)
+    connection = None
+    for attempt in range(1, 15):
+        try:
+            connection = pika.BlockingConnection(params)
+            break
+        except Exception as e:
+            print(f"Waiting for RabbitMQ (attempt {attempt}/15): {e}")
+            time.sleep(3)
+    if not connection:
+        raise RuntimeError("Failed to connect to RabbitMQ after multiple attempts.")
     channel = connection.channel()
     channel.exchange_declare(exchange=_EXCHANGE, exchange_type="topic", durable=True)
 

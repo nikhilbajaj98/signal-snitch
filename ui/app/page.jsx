@@ -85,16 +85,103 @@ export default function Dashboard() {
         
         if (!isMounted) return;
 
-        const backendNodes = data.nodes || [];
-        const backendEdges = data.edges || [];
+        const rawNodes = Array.isArray(data.nodes) ? data.nodes.slice() : [];
+        const rawEdges = Array.isArray(data.edges) ? data.edges.slice() : [];
 
-        // 1. Process Nodes & Maintain Payload Cache
-        const mappedNodes = backendNodes.map((bNode) => {
-          const id = bNode.id;
+        // Strict deterministic node classification guard
+        const classifyNode = (nodeId, existingType = "") => {
+          const id = String(nodeId || "");
+          const t = String(existingType || "").toLowerCase();
+          if (
+            id.includes(":9092") ||
+            id.includes(":5672") ||
+            id.includes(":15672") ||
+            id === "172.18.0.2" ||
+            id === "172.18.0.3" ||
+            id === "172.18.0.4" ||
+            id.startsWith("172.18.0.2:") ||
+            id.startsWith("172.18.0.3:") ||
+            id.startsWith("172.18.0.4:")
+          ) {
+            return "BROKER";
+          }
+          if (
+            id === "rdkafka" ||
+            id.includes("events") ||
+            id.includes("exch") ||
+            id.includes("pulse") ||
+            id.includes("topic") ||
+            id.startsWith("route:") ||
+            t === "route"
+          ) {
+            return "ROUTE";
+          }
+          return "CLIENT";
+        };
+
+        // 1. Implement an Edge-to-Node Validation Map with Strict Classification
+        const nodeValidationIndex = new Map(rawNodes.map((n) => [n.id, n]));
+
+        rawEdges.forEach((edge) => {
+          if (edge.source && !nodeValidationIndex.has(edge.source)) {
+            const forcedType = classifyNode(edge.source);
+            const fallbackClient = {
+              id: edge.source,
+              label: edge.source === "127.0.0.1" || edge.source === "" ? "Internal Client" : edge.source,
+              type: forcedType,
+              protocol: edge.protocol || "KAFKA",
+              message_count: edge.message_count || 1,
+              bytes_size: edge.bytes_size || 0,
+            };
+            rawNodes.push(fallbackClient);
+            nodeValidationIndex.set(edge.source, fallbackClient);
+          }
+          if (edge.target && !nodeValidationIndex.has(edge.target)) {
+            const forcedType = classifyNode(edge.target);
+            const fallbackBroker = {
+              id: edge.target,
+              label: edge.target === "127.0.0.1" || !edge.target ? "Internal Broker" : edge.target,
+              type: forcedType,
+              protocol: edge.protocol || "KAFKA",
+              message_count: edge.message_count || 1,
+              bytes_size: edge.bytes_size || 0,
+            };
+            rawNodes.push(fallbackBroker);
+            nodeValidationIndex.set(edge.target, fallbackBroker);
+          }
+        });
+
+        // 2. Enforce Absolute Node Typing Guards & Recalculate Column Coordinates Symmetrically
+        let clientIdx = 0;
+        let routeIdx = 0;
+        let brokerIdx = 0;
+
+        const mappedNodes = rawNodes.map((bNode) => {
+          const id = String(bNode.id || "");
           const nodeProtocol = bNode.protocol || (bNode.protocols && bNode.protocols[0]) || "KAFKA";
           const newMsgCount = bNode.message_count || 0;
-          const type = bNode.type || "client";
           
+          // Enforce absolute node typing guard
+          const strictType = classifyNode(id, bNode.type);
+          bNode.type = strictType; // explicitly override property as requested
+
+          // Recalculate column coordinates symmetrically
+          let x = 80;
+          let y = 180;
+          if (strictType === "CLIENT") {
+            x = 80;
+            y = 180 + (clientIdx * 180);
+            clientIdx++;
+          } else if (strictType === "ROUTE") {
+            x = 400;
+            y = 180 + (routeIdx * 180);
+            routeIdx++;
+          } else if (strictType === "BROKER") {
+            x = 720;
+            y = 180 + (brokerIdx * 180);
+            brokerIdx++;
+          }
+
           // Find if we had this node previously
           const prevNode = prevDataRef.current.nodes.find((n) => n.id === id);
           const oldMsgCount = prevNode ? prevNode.message_count : 0;
@@ -114,23 +201,25 @@ export default function Dashboard() {
           return {
             id,
             label: bNode.label || id,
-            type,
+            type: strictType.toLowerCase(), // standard lowercase for React Flow styles
+            nodeType: strictType, // explicit uppercase property for strict typing guards
             protocol: nodeProtocol,
             protocols: bNode.protocols || [nodeProtocol],
             message_count: newMsgCount,
             bytes_size: bNode.bytes_size || 0,
             status: newMsgCount > 1000 && Math.random() < 0.05 ? "Stressed" : "Healthy",
             recentPayloads: payloadsCacheRef.current[id],
+            position: { x, y },
           };
         });
 
         // Calculate data rate from ClickHouse bytes count over the window (300 seconds)
-        const totalBytes = backendEdges.reduce((sum, e) => sum + (e.bytes_size || 0), 0);
+        const totalBytes = rawEdges.reduce((sum, e) => sum + (e.bytes_size || 0), 0);
         const windowSeconds = 300;
         const computedThroughput = (totalBytes / windowSeconds) / 1024; // KB/s
 
-        // 2. Process Edges & Maintain Payload Cache
-        const mappedEdges = backendEdges.map((bEdge, idx) => {
+        // 3. Process Edges & Maintain Payload Cache
+        const mappedEdges = rawEdges.map((bEdge) => {
           const source = bEdge.source;
           const target = bEdge.target;
           const protocol = bEdge.protocol || "KAFKA";
@@ -168,39 +257,7 @@ export default function Dashboard() {
           };
         });
 
-        // Address Missing Senders/Targets ("Dangling" Bug):
-        // If an edge exists but sender/target is missing from nodes, synthesize fallback nodes.
-        const nodeIds = new Set(mappedNodes.map((n) => n.id));
-        mappedEdges.forEach((edge) => {
-          if (!nodeIds.has(edge.source)) {
-            mappedNodes.push({
-              id: edge.source,
-              label: !edge.source || edge.source === "unknown" ? "Inbound Request" : `External (${edge.source})`,
-              type: "client",
-              protocol: edge.protocol || "KAFKA",
-              message_count: edge.message_count || 1,
-              bytes_size: edge.bytes_size || 0,
-              status: "Healthy",
-              recentPayloads: edge.recentPayloads || [],
-            });
-            nodeIds.add(edge.source);
-          }
-          if (!nodeIds.has(edge.target)) {
-            mappedNodes.push({
-              id: edge.target,
-              label: !edge.target || edge.target === "unknown" ? "External Service" : `Target (${edge.target})`,
-              type: "broker",
-              protocol: edge.protocol || "KAFKA",
-              message_count: edge.message_count || 1,
-              bytes_size: edge.bytes_size || 0,
-              status: "Healthy",
-              recentPayloads: edge.recentPayloads || [],
-            });
-            nodeIds.add(edge.target);
-          }
-        });
-
-        // 3. Save states
+        // 4. Save states
         setNodes(mappedNodes);
         setEdges(mappedEdges);
 
